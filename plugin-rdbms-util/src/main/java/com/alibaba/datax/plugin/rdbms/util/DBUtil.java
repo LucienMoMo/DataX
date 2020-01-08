@@ -2,6 +2,7 @@ package com.alibaba.datax.plugin.rdbms.util;
 
 import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.util.Configuration;
+import com.alibaba.datax.common.util.DDConfig;
 import com.alibaba.datax.common.util.RetryUtil;
 import com.alibaba.datax.plugin.rdbms.reader.Key;
 import com.alibaba.druid.sql.parser.SQLParserUtils;
@@ -82,9 +83,9 @@ public final class DBUtil {
     }
 
     public static String chooseJdbcUrlWithoutRetry(final DataBaseType dataBaseType,
-                                       final List<String> jdbcUrls, final String username,
-                                       final String password, final List<String> preSql,
-                                       final boolean checkSlave) throws DataXException {
+                                                   final List<String> jdbcUrls, final String username,
+                                                   final String password, final List<String> preSql,
+                                                   final boolean checkSlave) throws DataXException {
 
         if (null == jdbcUrls || jdbcUrls.isEmpty()) {
             throw DataXException.asDataXException(
@@ -178,7 +179,7 @@ public final class DBUtil {
         String dbName;
         if (urls != null && urls.length != 0) {
             dbName = urls[3];
-        }else{
+        } else {
             return false;
         }
 
@@ -197,7 +198,7 @@ public final class DBUtil {
                     if (params[0].contains("INSERT") && !tableName.equals("*") && tableNames.contains(tableName))
                         tableNames.remove(tableName);
                 } else {
-                    if (grantRecord.contains("INSERT") ||grantRecord.contains("ALL PRIVILEGES")) {
+                    if (grantRecord.contains("INSERT") || grantRecord.contains("ALL PRIVILEGES")) {
                         if (grantRecord.contains("*.*"))
                             return true;
                         else if (grantRecord.contains(dbPattern)) {
@@ -221,16 +222,16 @@ public final class DBUtil {
 
         boolean hasInsertPrivilege = true;
         Statement insertStmt = null;
-        for(String tableName : tableList) {
+        for (String tableName : tableList) {
             String checkInsertPrivilegeSql = String.format(insertTemplate, tableName, tableName);
             try {
                 insertStmt = connection.createStatement();
                 executeSqlWithoutResultSet(insertStmt, checkInsertPrivilegeSql);
             } catch (Exception e) {
-                if(DataBaseType.Oracle.equals(dataBaseType)) {
-                    if(e.getMessage() != null && e.getMessage().contains("insufficient privileges")) {
+                if (DataBaseType.Oracle.equals(dataBaseType)) {
+                    if (e.getMessage() != null && e.getMessage().contains("insufficient privileges")) {
                         hasInsertPrivilege = false;
-                        LOG.warn("User [" + userName +"] has no 'insert' privilege on table[" + tableName + "], errorMessage:[{}]", e.getMessage());
+                        LOG.warn("User [" + userName + "] has no 'insert' privilege on table[" + tableName + "], errorMessage:[{}]", e.getMessage());
                     }
                 } else {
                     hasInsertPrivilege = false;
@@ -246,20 +247,20 @@ public final class DBUtil {
         return hasInsertPrivilege;
     }
 
-    public static boolean checkDeletePrivilege(DataBaseType dataBaseType,String jdbcURL, String userName, String password, List<String> tableList) {
+    public static boolean checkDeletePrivilege(DataBaseType dataBaseType, String jdbcURL, String userName, String password, List<String> tableList) {
         Connection connection = connect(dataBaseType, jdbcURL, userName, password);
         String deleteTemplate = "delete from %s WHERE 1 = 2";
 
         boolean hasInsertPrivilege = true;
         Statement deleteStmt = null;
-        for(String tableName : tableList) {
+        for (String tableName : tableList) {
             String checkDeletePrivilegeSQL = String.format(deleteTemplate, tableName);
             try {
                 deleteStmt = connection.createStatement();
                 executeSqlWithoutResultSet(deleteStmt, checkDeletePrivilegeSQL);
             } catch (Exception e) {
                 hasInsertPrivilege = false;
-                LOG.warn("User [" + userName +"] has no 'delete' privilege on table[" + tableName + "], errorMessage:[{}]", e.getMessage());
+                LOG.warn("User [" + userName + "] has no 'delete' privilege on table[" + tableName + "], errorMessage:[{}]", e.getMessage());
             }
         }
         try {
@@ -271,17 +272,17 @@ public final class DBUtil {
     }
 
     public static boolean needCheckDeletePrivilege(Configuration originalConfig) {
-        List<String> allSqls =new ArrayList<String>();
+        List<String> allSqls = new ArrayList<String>();
         List<String> preSQLs = originalConfig.getList(Key.PRE_SQL, String.class);
         List<String> postSQLs = originalConfig.getList(Key.POST_SQL, String.class);
-        if (preSQLs != null && !preSQLs.isEmpty()){
+        if (preSQLs != null && !preSQLs.isEmpty()) {
             allSqls.addAll(preSQLs);
         }
-        if (postSQLs != null && !postSQLs.isEmpty()){
+        if (postSQLs != null && !postSQLs.isEmpty()) {
             allSqls.addAll(postSQLs);
         }
-        for(String sql : allSqls) {
-            if(StringUtils.isNotBlank(sql)) {
+        for (String sql : allSqls) {
+            if (StringUtils.isNotBlank(sql)) {
                 if (sql.trim().toUpperCase().startsWith("DELETE")) {
                     return true;
                 }
@@ -304,7 +305,6 @@ public final class DBUtil {
     }
 
     /**
-     *
      * @param dataBaseType
      * @param jdbcUrl
      * @param username
@@ -366,9 +366,9 @@ public final class DBUtil {
                                 DBUtilErrorCode.JDBC_OB10_ADDRESS_ERROR, "JDBC OB10格式错误，请联系askdatax");
             }
             LOG.info("this is ob1_0 jdbc url.");
-            user = ss[1].trim() +":"+user;
+            user = ss[1].trim() + ":" + user;
             url = ss[2];
-            LOG.info("this is ob1_0 jdbc url. user="+user+" :url="+url);
+            LOG.info("this is ob1_0 jdbc url. user=" + user + " :url=" + url);
         }
 
         Properties prop = new Properties();
@@ -387,6 +387,10 @@ public final class DBUtil {
     private static synchronized Connection connect(DataBaseType dataBaseType,
                                                    String url, Properties prop) {
         try {
+            // 获取ddconfig中的用户配置信息
+            prop.setProperty("user", DDConfig.getSingleton().getUserInfoSetting(prop.getProperty("user")));
+            prop.setProperty("password", DDConfig.getSingleton().getUserInfoSetting(prop.getProperty("password")));
+            // 加载驱动类
             Class.forName(dataBaseType.getDriverClassName());
             DriverManager.setLoginTimeout(Constant.TIMEOUT_SECONDS);
             return DriverManager.getConnection(url, prop);
@@ -502,7 +506,7 @@ public final class DBUtil {
     public static List<String> getTableColumns(DataBaseType dataBaseType,
                                                String jdbcUrl, String user, String pass, String tableName) {
         Connection conn = getConnection(dataBaseType, jdbcUrl, user, pass);
-        return getTableColumnsByConn(dataBaseType, conn, tableName, "jdbcUrl:"+jdbcUrl);
+        return getTableColumnsByConn(dataBaseType, conn, tableName, "jdbcUrl:" + jdbcUrl);
     }
 
     public static List<String> getTableColumnsByConn(DataBaseType dataBaseType, Connection conn, String tableName, String basicMsg) {
@@ -521,7 +525,7 @@ public final class DBUtil {
             }
 
         } catch (SQLException e) {
-            throw RdbmsException.asQueryException(dataBaseType,e,queryColumnSql,tableName,null);
+            throw RdbmsException.asQueryException(dataBaseType, e, queryColumnSql, tableName, null);
         } finally {
             DBUtil.closeDBResources(rs, statement, conn);
         }
@@ -581,7 +585,7 @@ public final class DBUtil {
     }
 
     public static boolean testConnWithoutRetry(DataBaseType dataBaseType,
-                                               String url, String user, String pass, boolean checkSlave){
+                                               String url, String user, String pass, boolean checkSlave) {
         Connection connection = null;
 
         try {
@@ -751,13 +755,14 @@ public final class DBUtil {
         DBUtil.closeDBResources(stmt, null);
     }
 
-    public static void sqlValid(String sql, DataBaseType dataBaseType){
-        SQLStatementParser statementParser = SQLParserUtils.createSQLStatementParser(sql,dataBaseType.getTypeName());
+    public static void sqlValid(String sql, DataBaseType dataBaseType) {
+        SQLStatementParser statementParser = SQLParserUtils.createSQLStatementParser(sql, dataBaseType.getTypeName());
         statementParser.parseStatementList();
     }
 
     /**
      * 异步获取resultSet的next(),注意，千万不能应用在数据的读取中。只能用在meta的获取
+     *
      * @param resultSet
      * @return
      */
@@ -779,14 +784,14 @@ public final class DBUtil {
                     DBUtilErrorCode.RS_ASYNC_ERROR, "异步获取ResultSet失败", e);
         }
     }
-    
+
     public static void loadDriverClass(String pluginType, String pluginName) {
         try {
             String pluginJsonPath = StringUtils.join(
-                    new String[] { System.getProperty("datax.home"), "plugin",
+                    new String[]{System.getProperty("datax.home"), "plugin",
                             pluginType,
                             String.format("%s%s", pluginName, pluginType),
-                            "plugin.json" }, File.separator);
+                            "plugin.json"}, File.separator);
             Configuration configuration = Configuration.from(new File(
                     pluginJsonPath));
             List<String> drivers = configuration.getList("drivers",

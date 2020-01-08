@@ -1,5 +1,5 @@
 {
-    "name": "mongodbwriter",
+    "name": "security-mongodbwriter",
     "class": "com.alibaba.datax.plugin.writer.mongodbwriter.MongoDBWriter",
     "description": "useScene: prod. mechanism: via mongoclient connect mongodb write data concurrent.",
     "developer": "alibaba"

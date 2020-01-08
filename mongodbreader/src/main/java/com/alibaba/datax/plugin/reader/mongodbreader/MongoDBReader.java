@@ -16,6 +16,7 @@ import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.plugin.RecordSender;
 import com.alibaba.datax.common.spi.Reader;
 import com.alibaba.datax.common.util.Configuration;
+import com.alibaba.datax.common.util.DDConfig;
 import com.alibaba.datax.plugin.reader.mongodbreader.util.CollectionSplitUtil;
 import com.alibaba.datax.plugin.reader.mongodbreader.util.MongoUtil;
 import com.alibaba.fastjson.JSON;
@@ -30,6 +31,8 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import org.bson.types.ObjectId;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Created by jianying.wcj on 2015/3/19 0019.
@@ -37,6 +40,7 @@ import org.bson.types.ObjectId;
  * Modified by mingyan.zc on 2017/7/5.
  */
 public class MongoDBReader extends Reader {
+    private static final Logger LOG = LoggerFactory.getLogger(MongoDBReader.class);
 
     public static class Job extends Reader.Job {
 
@@ -49,18 +53,25 @@ public class MongoDBReader extends Reader {
 
         @Override
         public List<Configuration> split(int adviceNumber) {
-            return CollectionSplitUtil.doSplit(originalConfig,adviceNumber,mongoClient);
+            return CollectionSplitUtil.doSplit(originalConfig, adviceNumber, mongoClient);
         }
 
         @Override
         public void init() {
+
             this.originalConfig = super.getPluginJobConf();
+            // 调用DDconfig 获取用户名和密码
+            LOG.info("originalConfig -> 使用自编译的mongoreader，进行配置文件处理");
+            this.originalConfig.set(KeyConstant.MONGO_USER_NAME, DDConfig.getSingleton().getUserInfoSetting(originalConfig.getString(KeyConstant.MONGO_USER_NAME, originalConfig.getString(KeyConstant.MONGO_USERNAME))));
+            this.originalConfig.set(KeyConstant.MONGO_USER_PASSWORD, DDConfig.getSingleton().getUserInfoSetting(originalConfig.getString(KeyConstant.MONGO_USER_PASSWORD, originalConfig.getString(KeyConstant.MONGO_PASSWORD))));
+
             this.userName = originalConfig.getString(KeyConstant.MONGO_USER_NAME, originalConfig.getString(KeyConstant.MONGO_USERNAME));
             this.password = originalConfig.getString(KeyConstant.MONGO_USER_PASSWORD, originalConfig.getString(KeyConstant.MONGO_PASSWORD));
-            String database =  originalConfig.getString(KeyConstant.MONGO_DB_NAME, originalConfig.getString(KeyConstant.MONGO_DATABASE));
-            String authDb =  originalConfig.getString(KeyConstant.MONGO_AUTHDB, database);
-            if(!Strings.isNullOrEmpty(this.userName) && !Strings.isNullOrEmpty(this.password)) {
-                this.mongoClient = MongoUtil.initCredentialMongoClient(originalConfig,userName,password,authDb);
+            String database = originalConfig.getString(KeyConstant.MONGO_DB_NAME, originalConfig.getString(KeyConstant.MONGO_DATABASE));
+            String authDb = originalConfig.getString(KeyConstant.MONGO_AUTHDB, database);
+
+            if (!Strings.isNullOrEmpty(this.userName) && !Strings.isNullOrEmpty(this.password)) {
+                this.mongoClient = MongoUtil.initCredentialMongoClient(originalConfig, userName, password, (authDb == null) ? database : authDb);
             } else {
                 this.mongoClient = MongoUtil.initMongoClient(originalConfig);
             }
@@ -95,12 +106,11 @@ public class MongoDBReader extends Reader {
 
         @Override
         public void startRead(RecordSender recordSender) {
-
-            if(lowerBound== null || upperBound == null ||
-                mongoClient == null || database == null ||
-                collection == null  || mongodbColumnMeta == null) {
+            if (lowerBound == null || upperBound == null ||
+                    mongoClient == null || database == null ||
+                    collection == null || mongodbColumnMeta == null) {
                 throw DataXException.asDataXException(MongoDBReaderErrorCode.ILLEGAL_VALUE,
-                    MongoDBReaderErrorCode.ILLEGAL_VALUE.getDescription());
+                        MongoDBReaderErrorCode.ILLEGAL_VALUE.getDescription());
             }
             MongoDatabase db = mongoClient.getDatabase(database);
             MongoCollection col = db.getCollection(this.collection);
@@ -116,7 +126,7 @@ public class MongoDBReader extends Reader {
             } else {
                 filter.append(KeyConstant.MONGO_PRIMARY_ID, new Document("$gte", isObjectId ? new ObjectId(lowerBound.toString()) : lowerBound).append("$lt", isObjectId ? new ObjectId(upperBound.toString()) : upperBound));
             }
-            if(!Strings.isNullOrEmpty(query)) {
+            if (!Strings.isNullOrEmpty(query)) {
                 Document queryFilter = Document.parse(query);
                 filter = new Document("$and", Arrays.asList(filter, queryFilter));
             }
@@ -126,7 +136,7 @@ public class MongoDBReader extends Reader {
                 Record record = recordSender.createRecord();
                 Iterator columnItera = mongodbColumnMeta.iterator();
                 while (columnItera.hasNext()) {
-                    JSONObject column = (JSONObject)columnItera.next();
+                    JSONObject column = (JSONObject) columnItera.next();
                     Object tempCol = item.get(column.getString(KeyConstant.COLUMN_NAME));
                     if (tempCol == null) {
                         if (KeyConstant.isDocumentType(column.getString(KeyConstant.COLUMN_TYPE))) {
@@ -151,7 +161,7 @@ public class MongoDBReader extends Reader {
                     if (tempCol == null) {
                         //continue; 这个不能直接continue会导致record到目的端错位
                         record.addColumn(new StringColumn(null));
-                    }else if (tempCol instanceof Double) {
+                    } else if (tempCol instanceof Double) {
                         //TODO deal with Double.isNaN()
                         record.addColumn(new DoubleColumn((Double) tempCol));
                     } else if (tempCol instanceof Boolean) {
@@ -160,16 +170,16 @@ public class MongoDBReader extends Reader {
                         record.addColumn(new DateColumn((Date) tempCol));
                     } else if (tempCol instanceof Integer) {
                         record.addColumn(new LongColumn((Integer) tempCol));
-                    }else if (tempCol instanceof Long) {
+                    } else if (tempCol instanceof Long) {
                         record.addColumn(new LongColumn((Long) tempCol));
                     } else {
-                        if(KeyConstant.isArrayType(column.getString(KeyConstant.COLUMN_TYPE))) {
+                        if (KeyConstant.isArrayType(column.getString(KeyConstant.COLUMN_TYPE))) {
                             String splitter = column.getString(KeyConstant.COLUMN_SPLITTER);
-                            if(Strings.isNullOrEmpty(splitter)) {
+                            if (Strings.isNullOrEmpty(splitter)) {
                                 throw DataXException.asDataXException(MongoDBReaderErrorCode.ILLEGAL_VALUE,
-                                    MongoDBReaderErrorCode.ILLEGAL_VALUE.getDescription());
+                                        MongoDBReaderErrorCode.ILLEGAL_VALUE.getDescription());
                             } else {
-                                ArrayList array = (ArrayList)tempCol;
+                                ArrayList array = (ArrayList) tempCol;
                                 String tempArrayStr = Joiner.on(splitter).join(array);
                                 record.addColumn(new StringColumn(tempArrayStr));
                             }
@@ -185,12 +195,18 @@ public class MongoDBReader extends Reader {
         @Override
         public void init() {
             this.readerSliceConfig = super.getPluginJobConf();
+            // 调用DDconfig 获取用户名和密码
+            LOG.info("readerSliceConfig -> 使用自编译的mongoreader，进行配置文件处理");
+            this.readerSliceConfig.set(KeyConstant.MONGO_USER_NAME, DDConfig.getSingleton().getUserInfoSetting(readerSliceConfig.getString(KeyConstant.MONGO_USER_NAME, readerSliceConfig.getString(KeyConstant.MONGO_USERNAME))));
+            this.readerSliceConfig.set(KeyConstant.MONGO_USER_PASSWORD, DDConfig.getSingleton().getUserInfoSetting(readerSliceConfig.getString(KeyConstant.MONGO_USER_PASSWORD, readerSliceConfig.getString(KeyConstant.MONGO_PASSWORD))));
+
             this.userName = readerSliceConfig.getString(KeyConstant.MONGO_USER_NAME, readerSliceConfig.getString(KeyConstant.MONGO_USERNAME));
             this.password = readerSliceConfig.getString(KeyConstant.MONGO_USER_PASSWORD, readerSliceConfig.getString(KeyConstant.MONGO_PASSWORD));
             this.database = readerSliceConfig.getString(KeyConstant.MONGO_DB_NAME, readerSliceConfig.getString(KeyConstant.MONGO_DATABASE));
             this.authDb = readerSliceConfig.getString(KeyConstant.MONGO_AUTHDB, this.database);
-            if(!Strings.isNullOrEmpty(userName) && !Strings.isNullOrEmpty(password)) {
-                mongoClient = MongoUtil.initCredentialMongoClient(readerSliceConfig,userName,password,authDb);
+
+            if (!Strings.isNullOrEmpty(userName) && !Strings.isNullOrEmpty(password)) {
+                mongoClient = MongoUtil.initCredentialMongoClient(readerSliceConfig, userName, password, (this.authDb == null) ? this.database : this.authDb);
             } else {
                 mongoClient = MongoUtil.initMongoClient(readerSliceConfig);
             }
